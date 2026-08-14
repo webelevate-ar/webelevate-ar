@@ -35,7 +35,7 @@ Lo que tiene adentro:
 - SEO completo: datos estructurados de negocio local, preguntas frecuentes con su schema,
   sitemap, y acceso explícito para los rastreadores de IA.
 
-### 🧽 Luffaloop
+### 🧽 Luffaloop — [ver el sitio](https://luffaloop-web.vercel.app)
 
 Emprendimiento familiar de luffas vegetales de Córdoba. Sitio de 8 páginas con Tailwind,
 incluidas las páginas legales según la Ley 24.240 y la Ley 25.326.
@@ -43,10 +43,20 @@ incluidas las páginas legales según la Ley 24.240 y la Ley 25.326.
 Las ilustraciones son SVG dibujado a mano en el propio código: el sitio no depende de ninguna
 imagen externa y pesa casi nada.
 
-### 🛒 Tienda WebElevate
+### 🛒 Tienda WebElevate — [webelevate.com.ar](https://webelevate.com.ar)
 
 Tema de Shopify propio, construido sobre Dawn, para vender servicios de diseño en vez de
-productos físicos. *En construcción.*
+productos físicos.
+
+### 🏁 KneeScraper Garage — [ver la demo](https://kneescraper-garage.vercel.app)
+
+Pieza de portfolio: taller de motos y preparación para track days. Estética de alto contraste,
+rojo sobre negro.
+
+### 🏛️ Aurora Capital — [ver la demo](https://aurora-capital-web-elevate1.vercel.app)
+
+Pieza de portfolio en el otro extremo del registro: editorial, sobria, para el sector financiero.
+Página única, sin una sola dependencia externa — funciona hasta sin internet.
 
 ## Cómo trabajo
 
