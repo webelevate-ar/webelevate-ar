@@ -7,12 +7,20 @@ Este repositorio es **solo el README del perfil de GitHub**. El trabajo real de 
 
 ```
 webelevate-ar/tiendas-base   (privado)
-  CLAUDE.md      reglas, decisiones y 40 trampas documentadas
+  CLAUDE.md      reglas y decisiones vigentes, con el indice de trampas
   TRASPASO.md    la bitacora dia por dia
+  TRAMPAS.md     las 57 trampas enteras
 ```
 
-Si no está clonado: `add_repo` con `webelevate-ar/tiendas-base`, y leé **los dos archivos**
-antes de tocar nada. Ahí está todo lo que sigue, explicado y con el porqué.
+Si no está clonado: `add_repo` con `webelevate-ar/tiendas-base`, y leé **`CLAUDE.md` y
+`TRASPASO.md`** antes de tocar nada. Ahí está todo lo que sigue, explicado y con el porqué.
+
+**`TRAMPAS.md` no se lee entero para empezar.** El índice que está al final de `CLAUDE.md` tiene
+una línea por trampa: se barre de un vistazo, y ese archivo se abre cuando el índice señala una
+que toca lo que estás por hacer, o cuando algo falla de una forma que no entendés.
+
+⚠️ **Una trampa nueva va en `TRAMPAS.md` y además como una línea en el índice.** Las dos cosas:
+una trampa que no está en el índice es una que la sesión siguiente no va a encontrar.
 
 ## Con quién trabajás
 
