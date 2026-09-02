@@ -9,7 +9,7 @@ Este repositorio es **solo el README del perfil de GitHub**. El trabajo real de 
 webelevate-ar/tiendas-base   (privado)
   CLAUDE.md      reglas y decisiones vigentes, con el indice de trampas
   TRASPASO.md    la bitacora dia por dia
-  TRAMPAS.md     las 54 trampas enteras
+  TRAMPAS.md     las 57 trampas enteras
 ```
 
 Si no está clonado: `add_repo` con `webelevate-ar/tiendas-base`, y leé **`CLAUDE.md` y
