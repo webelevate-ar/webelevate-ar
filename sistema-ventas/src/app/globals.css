@@ -1,0 +1,185 @@
+@import 'tailwindcss';
+
+/*
+ * Tokens de diseño. Definidos una sola vez, acá.
+ * Ningún componente escribe un color, un radio ni un tamaño a mano (§7.1).
+ *
+ * Paleta oscura por defecto: el mostrador tiene mala luz y la pantalla está
+ * prendida doce horas. Un único acento fuerte, reservado para el cobro; si el
+ * acento aparece en dos lugares distintos deja de señalar nada.
+ */
+@theme {
+  /* Espaciado: escala de 4px. Solo 4, 8, 12, 16, 24, 32, 48, 64. */
+  --spacing: 4px;
+
+  /* Tipografía: una sola familia. Los números siempre tabulares. */
+  /* Geist viene del paquete npm y se sirve desde el propio dominio: la
+     aplicación no le pide una sola tipografía a un servidor ajeno. */
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', monospace;
+
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 20px;
+  --text-lg--line-height: 28px;
+  --text-xl: 24px;
+  --text-xl--line-height: 32px;
+  --text-2xl: 32px;
+  --text-2xl--line-height: 38px;
+  --text-3xl: 48px;
+  --text-3xl--line-height: 52px;
+  --text-4xl: 64px;
+  --text-4xl--line-height: 68px;
+
+  /* Color. Los grises cargan la interfaz; el acento solo cobra. */
+  --color-fondo: #0a0e13;
+  --color-superficie: #121a22;
+  --color-superficie-alta: #1b2531;
+  --color-borde: #2b3947;
+  /* 3,31:1 sobre la superficie más clara: es el mínimo del §7.8 para el borde
+     de un control, medido, no estimado. */
+  --color-borde-fuerte: #63768a;
+
+  --color-texto: #eef4fa;
+  --color-texto-suave: #a8bacb;
+  --color-texto-tenue: #8296a8;
+
+  --color-acento: #21c77a;
+  --color-acento-fuerte: #17a663;
+  --color-sobre-acento: #04140c;
+
+  --color-exito: #3ddb8a;
+  --color-advertencia: #f7b93b;
+  --color-error: #ff6b6b;
+  --color-info: #64b0ff;
+
+  --color-exito-fondo: #10291d;
+  --color-advertencia-fondo: #2e2410;
+  --color-error-fondo: #33161a;
+  --color-info-fondo: #14243a;
+
+  /* Dos radios y dos sombras. Más variedad es ruido. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.45);
+
+  /* Animaciones: nunca más de 150ms. */
+  --duracion-rapida: 90ms;
+  --duracion-normal: 150ms;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-fondo);
+    color: var(--color-texto);
+    font-family: var(--font-sans);
+    /* Todo número en la pantalla es de ancho fijo: si no, el total baila al escribir. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+   * El foco visible no es un detalle de accesibilidad acá: el cajero trabaja
+   * sin mirar el mouse y necesita saber dónde está parado.
+   */
+  :focus-visible {
+    outline: 3px solid var(--color-info);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background: var(--color-acento);
+    color: var(--color-sobre-acento);
+  }
+
+  /* Quita las flechas de los inputs numéricos: en el mostrador se escribe, no se clickea. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  /*
+   * Los números grandes van con cifras proporcionales. `tabular-nums` le da a
+   * cada dígito el ancho de un cero, y a 48px un "121" queda flojo y separado.
+   * Las columnas de números sí lo necesitan, y por eso el `body` lo deja puesto.
+   */
+  .cifra-destacada {
+    font-variant-numeric: proportional-nums;
+  }
+
+  .esqueleto {
+    background: linear-gradient(
+      90deg,
+      var(--color-superficie) 25%,
+      var(--color-superficie-alta) 50%,
+      var(--color-superficie) 75%
+    );
+    background-size: 200% 100%;
+    animation: brillo 1.4s ease-in-out infinite;
+  }
+
+  @keyframes brillo {
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+
+/*
+ * Ticket de 80mm. La impresora térmica no imprime colores ni fondos:
+ * todo va en negro sobre blanco y con ancho fijo.
+ */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .no-imprimir {
+    display: none !important;
+  }
+
+  .ticket {
+    width: 80mm;
+    padding: 4mm;
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.35;
+    color: #000;
+    background: #fff;
+  }
+}

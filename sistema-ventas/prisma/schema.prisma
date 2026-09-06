@@ -1,0 +1,287 @@
+// Esquema del sistema de ventas.
+//
+// Reglas que no se negocian (§4):
+//   · El dinero es un entero en centavos. No hay ni un solo campo decimal.
+//   · Las cantidades son enteros en milésimas de unidad: 1 unidad = 1000,
+//     1,250 kg = 1250. Así lo que se pesa tampoco pasa por coma flotante.
+//   · Todo cambio de stock deja un MovimientoStock. `Producto.stockMilesimas`
+//     es un cache derivado, no la fuente de verdad, y hay un script que lo
+//     recalcula desde los movimientos (`npm run bd:recalcular-stock`).
+//   · Las ventas no se borran: se anulan y generan movimientos inversos.
+//   · Toda fecha se guarda en UTC.
+//
+// SQLite no tiene enums: los campos que serían enum son String y su lista
+// válida vive en src/lib/validacion/enums.ts, que es la que usan Zod y
+// TypeScript. Al pasar a PostgreSQL se pueden convertir a enum nativo sin
+// tocar el código de la aplicación.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Usuario {
+  id                String    @id @default(cuid())
+  nombre            String
+  pinHash           String    @map("pin_hash")
+  rol               String // ADMIN | SUPERVISOR | CAJERO
+  activo            Boolean   @default(true)
+  // Cinco intentos fallidos bloquean el usuario cinco minutos (§8.9).
+  intentosFallidos  Int       @default(0) @map("intentos_fallidos")
+  bloqueadoHasta    DateTime? @map("bloqueado_hasta")
+  creadoEn          DateTime  @default(now()) @map("creado_en")
+
+  cajaSesiones      CajaSesion[]
+  ventas            Venta[]           @relation("VentaCajero")
+  ventasAnuladas    Venta[]           @relation("VentaAnuladaPor")
+  movimientosStock  MovimientoStock[]
+  movimientosCaja   MovimientoCaja[]
+  devoluciones      Devolucion[]
+  auditoria         AuditLog[]
+
+  @@index([activo])
+  @@map("usuario")
+}
+
+model Categoria {
+  id        String     @id @default(cuid())
+  nombre    String     @unique
+  color     String
+  orden     Int        @default(0)
+  productos Producto[]
+
+  @@map("categoria")
+}
+
+model Proveedor {
+  id        String     @id @default(cuid())
+  nombre    String     @unique
+  telefono  String?
+  cuit      String?
+  notas     String?
+  productos Producto[]
+
+  @@map("proveedor")
+}
+
+model Producto {
+  id                   String  @id @default(cuid())
+  sku                  String  @unique
+  codigoBarras         String? @unique @map("codigo_barras")
+  nombre               String
+  // Copia del nombre sin acentos y en minúsculas: SQLite no sabe comparar
+  // ignorando acentos, así que la comparación se prepara al guardar.
+  nombreBusqueda       String  @map("nombre_busqueda")
+  categoriaId          String  @map("categoria_id")
+  proveedorId          String? @map("proveedor_id")
+  precioVentaCentavos  Int     @map("precio_venta_centavos")
+  precioCostoCentavos  Int     @map("precio_costo_centavos")
+  stockMilesimas       Int     @default(0) @map("stock_milesimas")
+  stockMinimoMilesimas Int     @default(0) @map("stock_minimo_milesimas")
+  unidad               String // unidad | kg
+  activo               Boolean @default(true)
+  imagenUrl            String? @map("imagen_url")
+
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  categoria    Categoria         @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
+  proveedor    Proveedor?        @relation(fields: [proveedorId], references: [id], onDelete: Restrict)
+  items        VentaItem[]
+  movimientos  MovimientoStock[]
+
+  @@index([nombreBusqueda])
+  @@index([categoriaId])
+  @@index([activo])
+  @@map("producto")
+}
+
+model MovimientoStock {
+  id                       String   @id @default(cuid())
+  productoId               String   @map("producto_id")
+  tipo                     String // ingreso | venta | ajuste | devolucion | merma
+  // Firmada: negativa descuenta. La suma de esta columna reconstruye el stock.
+  cantidadMilesimas        Int      @map("cantidad_milesimas")
+  stockResultanteMilesimas Int      @map("stock_resultante_milesimas")
+  motivo                   String?
+  usuarioId                String   @map("usuario_id")
+  ventaId                  String?  @map("venta_id")
+  creadoEn                 DateTime @default(now()) @map("creado_en")
+
+  producto Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  usuario  Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  venta    Venta?   @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+
+  @@index([productoId])
+  @@index([creadoEn])
+  @@index([ventaId])
+  @@map("movimiento_stock")
+}
+
+model CajaSesion {
+  id                     String    @id @default(cuid())
+  cajaNumero             Int       @map("caja_numero")
+  usuarioId              String    @map("usuario_id")
+  abiertaEn              DateTime  @default(now()) @map("abierta_en")
+  cerradaEn              DateTime? @map("cerrada_en")
+  montoInicialCentavos   Int       @map("monto_inicial_centavos")
+  // Lo que el cajero cuenta, sin ver lo esperado. Arqueo ciego (§5).
+  montoDeclaradoCentavos Int?      @map("monto_declarado_centavos")
+  montoEsperadoCentavos  Int?      @map("monto_esperado_centavos")
+  diferenciaCentavos     Int?      @map("diferencia_centavos")
+  estado                 String // abierta | cerrada
+
+  usuario     Usuario          @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  ventas      Venta[]
+  movimientos MovimientoCaja[]
+
+  @@index([estado])
+  @@index([abiertaEn])
+  @@index([cajaNumero, estado])
+  @@map("caja_sesion")
+}
+
+model MovimientoCaja {
+  id            String   @id @default(cuid())
+  cajaSesionId  String   @map("caja_sesion_id")
+  tipo          String // venta | retiro | ingreso | devolucion
+  montoCentavos Int      @map("monto_centavos")
+  motivo        String?
+  usuarioId     String   @map("usuario_id")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  cajaSesion CajaSesion @relation(fields: [cajaSesionId], references: [id], onDelete: Restrict)
+  usuario    Usuario    @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([cajaSesionId])
+  @@map("movimiento_caja")
+}
+
+model Venta {
+  id                String @id @default(cuid())
+  numero            Int    @unique
+  // La genera el cliente antes de enviar. Si el request se reintenta, el
+  // servidor devuelve la venta ya creada en vez de cobrar dos veces (§8.4).
+  claveIdempotencia String @unique @map("clave_idempotencia")
+
+  cajaSesionId       String  @map("caja_sesion_id")
+  usuarioId          String  @map("usuario_id")
+  clienteId          String? @map("cliente_id")
+  subtotalCentavos   Int     @map("subtotal_centavos")
+  descuentoCentavos  Int     @default(0) @map("descuento_centavos")
+  totalCentavos      Int     @map("total_centavos")
+  estado             String // completada | anulada
+  creadoEn           DateTime  @default(now()) @map("creado_en")
+  anuladaEn          DateTime? @map("anulada_en")
+  anuladaPorId       String?   @map("anulada_por_id")
+  motivoAnulacion    String?   @map("motivo_anulacion")
+
+  cajaSesion       CajaSesion        @relation(fields: [cajaSesionId], references: [id], onDelete: Restrict)
+  usuario          Usuario           @relation("VentaCajero", fields: [usuarioId], references: [id], onDelete: Restrict)
+  anuladaPor       Usuario?          @relation("VentaAnuladaPor", fields: [anuladaPorId], references: [id], onDelete: Restrict)
+  cliente          Cliente?          @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+  items            VentaItem[]
+  pagos            Pago[]
+  devoluciones     Devolucion[]
+  movimientosStock MovimientoStock[]
+
+  @@index([creadoEn])
+  @@index([cajaSesionId])
+  @@index([estado])
+  @@index([usuarioId])
+  @@map("venta")
+}
+
+model VentaItem {
+  id         String @id @default(cuid())
+  ventaId    String @map("venta_id")
+  productoId String @map("producto_id")
+  // Copias congeladas: si mañana cambia el precio o el nombre, el histórico
+  // sigue diciendo lo que se cobró ese día.
+  nombreSnapshot String @map("nombre_snapshot")
+  skuSnapshot    String @map("sku_snapshot")
+  unidadSnapshot String @map("unidad_snapshot")
+
+  precioUnitarioCentavos Int @map("precio_unitario_centavos")
+  cantidadMilesimas      Int @map("cantidad_milesimas")
+  subtotalCentavos       Int @map("subtotal_centavos")
+
+  venta    Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@index([ventaId])
+  @@index([productoId])
+  @@map("venta_item")
+}
+
+model Pago {
+  id             String @id @default(cuid())
+  ventaId        String @map("venta_id")
+  metodo         String // efectivo | debito | credito | qr | cuenta_corriente
+  montoCentavos  Int    @map("monto_centavos")
+  vueltoCentavos Int    @default(0) @map("vuelto_centavos")
+
+  venta Venta @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
+  @@index([ventaId])
+  @@map("pago")
+}
+
+model Cliente {
+  id                           String  @id @default(cuid())
+  nombre                       String
+  telefono                     String?
+  saldoCuentaCorrienteCentavos Int     @default(0) @map("saldo_cuenta_corriente_centavos")
+  activo                       Boolean @default(true)
+
+  ventas Venta[]
+
+  @@map("cliente")
+}
+
+model Devolucion {
+  id            String   @id @default(cuid())
+  ventaId       String   @map("venta_id")
+  usuarioId     String   @map("usuario_id")
+  motivo        String
+  montoCentavos Int      @map("monto_centavos")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  venta   Venta   @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([ventaId])
+  @@map("devolucion")
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  usuarioId    String   @map("usuario_id")
+  accion       String
+  entidad      String
+  entidadId    String   @map("entidad_id")
+  datosAntes   String?  @map("datos_antes")
+  datosDespues String?  @map("datos_despues")
+  ip           String?
+  creadoEn     DateTime @default(now()) @map("creado_en")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([creadoEn])
+  @@index([entidad, entidadId])
+  @@index([usuarioId])
+  @@map("audit_log")
+}
+
+// El número de venta sale de acá, con un UPDATE atómico dentro de la misma
+// transacción. `count() + 1` con tres cajas cobrando a la vez repite números.
+// En PostgreSQL esto se reemplaza por una secuencia nativa.
+model Contador {
+  nombre String @id
+  valor  Int    @default(0)
+
+  @@map("contador")
+}

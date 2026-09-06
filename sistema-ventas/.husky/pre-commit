@@ -1,0 +1,7 @@
+# Antes de cada commit: tipos, lint y los tests de la lógica de dinero.
+# Es rápido —unos segundos— y evita el commit que rompe el build en el CI.
+#
+# Se activa solo con `npm install` cuando esta carpeta es la raíz de un
+# repositorio git. Mientras el proyecto viva dentro de otro repo, hay que
+# correr `npm run verificar` a mano.
+npm run tipos && npm run lint && npm run test
