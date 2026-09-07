@@ -1,33 +1,52 @@
+import { multiplicarPorCantidad } from '../dinero';
 import { prisma } from '../prisma';
 
 /**
- * Consultas del panel. Van en SQL crudo a propósito: son agregaciones sobre
- * decenas de miles de filas y el `groupBy` de Prisma obligaría a traérselas
- * todas para sumar en JavaScript.
+ * Consultas del panel.
  *
- * ⚠️ SQLite devuelve `SUM()` y `COUNT()` como BigInt. Si eso sale de acá tal
- * cual, `Math.round` lanza "Cannot convert a BigInt value to a number" y
- * `JSON.stringify` lanza "Do not know how to serialize a BigInt": el panel
- * entero devuelve 500. Pasó, y no lo encontró ningún test —la pantalla mostraba
- * su estado de error, que es lo que tiene que hacer— sino leer el log del
- * servidor. Por eso toda fila que sale de este archivo pasa por `aNumero`.
+ * ⚠️ Antes esto era SQL crudo con `date(creado_en, 'localtime')` y `strftime`.
+ * Andaba en SQLite y **fallaba entero en PostgreSQL**: `function date(timestamp
+ * without time zone, unknown) does not exist`. Se descubrió corriendo la
+ * aplicación contra un PostgreSQL de verdad, no leyendo el código.
+ *
+ * Ahora agrupa en JavaScript sobre las filas del período. Tres razones, en
+ * orden de importancia:
+ *
+ *  1. **Es igual en los dos motores.** No hay dialecto que mantener por
+ *     duplicado ni una rama que solo se prueba en uno de los dos.
+ *  2. **El margen se calcula con `multiplicarPorCantidad`**, la misma función
+ *     que usa la venta y que tiene tests al 100 %. En SQL era
+ *     `costo * cantidad / 1000`, una división entera que trunca: el margen del
+ *     panel no coincidía exactamente con el de la venta.
+ *  3. Se acabó el problema de los BigInt: la API tipada devuelve números.
+ *
+ * El costo es traer las filas del período —unas 1.500 ventas y 5.000 ítems por
+ * mes en un autoservicio— en vez de agregar en la base. Para este tamaño no se
+ * nota, y el panel no es la pantalla que tiene que ser rápida: esa es la venta.
  */
 
-/*
- * ⚠️ Segunda trampa de este archivo: Prisma con el adaptador de SQLite guarda
- * las fechas como TEXTO ISO ("2026-08-07T08:23:21.000+00:00"), no como
- * milisegundos. La versión anterior hacía `date(creado_en / 1000, 'unixepoch')`
- * —que sería lo correcto si fueran números— y SQLite devolvía 1970-01-01 para
- * las 1.500 ventas: el gráfico mostraba una sola barra gigante en vez de
- * treinta. No falló nada, no hubo error: simplemente el dato estaba mal, y se
- * vio mirando la pantalla. Las funciones de fecha van sobre la columna tal cual,
- * con el modificador 'localtime'.
- */
+interface FilaDeVenta {
+  creadoEn: Date;
+  totalCentavos: number;
+}
 
-function aNumero(valor: unknown): number {
-  if (typeof valor === 'bigint') return Number(valor);
-  if (typeof valor === 'number') return valor;
-  return Number(valor ?? 0);
+function ventasDelPeriodo(desde: Date, hasta?: Date): Promise<FilaDeVenta[]> {
+  return prisma.venta.findMany({
+    where: {
+      estado: 'completada',
+      creadoEn: { gte: desde, ...(hasta ? { lt: hasta } : {}) },
+    },
+    select: { creadoEn: true, totalCentavos: true },
+    orderBy: { creadoEn: 'asc' },
+  });
+}
+
+/** "2026-09-06" en hora local. La zona la fija el `TZ` del servidor. */
+function claveDelDia(fecha: Date): string {
+  const anio = fecha.getFullYear();
+  const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+  const dia = String(fecha.getDate()).padStart(2, '0');
+  return `${anio}-${mes}-${dia}`;
 }
 
 export interface TotalDelDia {
@@ -36,44 +55,42 @@ export interface TotalDelDia {
   totalCentavos: number;
 }
 
-export async function totalesPorDia(desde: Date): Promise<TotalDelDia[]> {
-  const filas = await prisma.$queryRaw<TotalDelDia[]>`
-    SELECT date(creado_en, 'localtime')                     AS dia,
-           COUNT(*)                                        AS ventas,
-           COALESCE(SUM(total_centavos), 0)                AS totalCentavos
-    FROM venta
-    WHERE estado = 'completada' AND creado_en >= ${desde}
-    GROUP BY dia
-    ORDER BY dia ASC
-  `;
-  return filas.map((fila) => ({
-    dia: String(fila.dia),
-    ventas: aNumero(fila.ventas),
-    totalCentavos: aNumero(fila.totalCentavos),
-  }));
-}
-
 export interface VentaPorHora {
   hora: number;
   ventas: number;
   totalCentavos: number;
 }
 
-export async function ventasPorHora(desde: Date): Promise<VentaPorHora[]> {
-  const filas = await prisma.$queryRaw<VentaPorHora[]>`
-    SELECT CAST(strftime('%H', creado_en, 'localtime') AS INTEGER)                    AS hora,
-           COUNT(*)                                                                   AS ventas,
-           COALESCE(SUM(total_centavos), 0)                                           AS totalCentavos
-    FROM venta
-    WHERE estado = 'completada' AND creado_en >= ${desde}
-    GROUP BY hora
-    ORDER BY hora ASC
-  `;
-  return filas.map((fila) => ({
-    hora: aNumero(fila.hora),
-    ventas: aNumero(fila.ventas),
-    totalCentavos: aNumero(fila.totalCentavos),
-  }));
+/**
+ * Los dos gráficos salen de la misma lectura. Pedir las mismas 1.500 filas dos
+ * veces para agrupar una por día y otra por hora sería pagar dos veces lo mismo.
+ */
+export async function totalesPorDiaYHora(
+  desde: Date,
+): Promise<{ porDia: TotalDelDia[]; porHora: VentaPorHora[] }> {
+  const filas = await ventasDelPeriodo(desde);
+
+  const dias = new Map<string, TotalDelDia>();
+  const horas = new Map<number, VentaPorHora>();
+
+  for (const fila of filas) {
+    const dia = claveDelDia(fila.creadoEn);
+    const acumuladoDia = dias.get(dia) ?? { dia, ventas: 0, totalCentavos: 0 };
+    acumuladoDia.ventas += 1;
+    acumuladoDia.totalCentavos += fila.totalCentavos;
+    dias.set(dia, acumuladoDia);
+
+    const hora = fila.creadoEn.getHours();
+    const acumuladoHora = horas.get(hora) ?? { hora, ventas: 0, totalCentavos: 0 };
+    acumuladoHora.ventas += 1;
+    acumuladoHora.totalCentavos += fila.totalCentavos;
+    horas.set(hora, acumuladoHora);
+  }
+
+  return {
+    porDia: [...dias.values()].sort((a, b) => a.dia.localeCompare(b.dia)),
+    porHora: [...horas.values()].sort((a, b) => a.hora - b.hora),
+  };
 }
 
 export interface ProductoDelRanking {
@@ -86,29 +103,37 @@ export interface ProductoDelRanking {
 }
 
 export async function rankingProductos(desde: Date, limite = 10): Promise<ProductoDelRanking[]> {
-  const filas = await prisma.$queryRaw<ProductoDelRanking[]>`
-    SELECT vi.producto_id                                                       AS productoId,
-           vi.nombre_snapshot                                                   AS nombre,
-           vi.unidad_snapshot                                                   AS unidad,
-           SUM(vi.cantidad_milesimas)                                           AS cantidadMilesimas,
-           SUM(vi.subtotal_centavos)                                            AS totalCentavos,
-           SUM(vi.subtotal_centavos - (p.precio_costo_centavos * vi.cantidad_milesimas / 1000)) AS margenCentavos
-    FROM venta_item vi
-    JOIN venta v    ON v.id = vi.venta_id
-    JOIN producto p ON p.id = vi.producto_id
-    WHERE v.estado = 'completada' AND v.creado_en >= ${desde}
-    GROUP BY vi.producto_id, vi.nombre_snapshot, vi.unidad_snapshot
-    ORDER BY totalCentavos DESC
-    LIMIT ${limite}
-  `;
-  return filas.map((fila) => ({
-    productoId: String(fila.productoId),
-    nombre: String(fila.nombre),
-    unidad: String(fila.unidad),
-    cantidadMilesimas: aNumero(fila.cantidadMilesimas),
-    totalCentavos: aNumero(fila.totalCentavos),
-    margenCentavos: Math.round(aNumero(fila.margenCentavos)),
-  }));
+  const agrupado = await prisma.ventaItem.groupBy({
+    by: ['productoId'],
+    where: { venta: { estado: 'completada', creadoEn: { gte: desde } } },
+    _sum: { subtotalCentavos: true, cantidadMilesimas: true },
+    orderBy: { _sum: { subtotalCentavos: 'desc' } },
+    take: limite,
+  });
+
+  const productos = await prisma.producto.findMany({
+    where: { id: { in: agrupado.map((fila) => fila.productoId) } },
+    select: { id: true, nombre: true, unidad: true, precioCostoCentavos: true },
+  });
+  const porId = new Map(productos.map((producto) => [producto.id, producto]));
+
+  return agrupado.map((fila) => {
+    const producto = porId.get(fila.productoId);
+    const cantidadMilesimas = fila._sum.cantidadMilesimas ?? 0;
+    const totalCentavos = fila._sum.subtotalCentavos ?? 0;
+    const costo = producto
+      ? multiplicarPorCantidad(producto.precioCostoCentavos, cantidadMilesimas)
+      : 0;
+
+    return {
+      productoId: fila.productoId,
+      nombre: producto?.nombre ?? 'Producto dado de baja',
+      unidad: producto?.unidad ?? 'unidad',
+      cantidadMilesimas,
+      totalCentavos,
+      margenCentavos: totalCentavos - costo,
+    };
+  });
 }
 
 export interface ResumenDeVentas {
@@ -117,31 +142,22 @@ export interface ResumenDeVentas {
   itemsVendidos: number;
 }
 
-/**
- * Van en dos consultas y no en una con JOIN: unir venta con venta_item
- * multiplica el total de la venta por la cantidad de ítems, y el resumen
- * saldría inflado sin que nada avise.
- */
 export async function resumenEntre(desde: Date, hasta: Date): Promise<ResumenDeVentas> {
-  const [cabecera, detalle] = await Promise.all([
-    prisma.$queryRaw<{ ventas: number; totalCentavos: number }[]>`
-      SELECT COUNT(*)                             AS ventas,
-             COALESCE(SUM(total_centavos), 0)     AS totalCentavos
-      FROM venta
-      WHERE estado = 'completada' AND creado_en >= ${desde} AND creado_en < ${hasta}
-    `,
-    prisma.$queryRaw<{ itemsVendidos: number }[]>`
-      SELECT COUNT(*) AS itemsVendidos
-      FROM venta_item vi
-      JOIN venta v ON v.id = vi.venta_id
-      WHERE v.estado = 'completada' AND v.creado_en >= ${desde} AND v.creado_en < ${hasta}
-    `,
+  const [cabecera, itemsVendidos] = await Promise.all([
+    prisma.venta.aggregate({
+      where: { estado: 'completada', creadoEn: { gte: desde, lt: hasta } },
+      _count: { _all: true },
+      _sum: { totalCentavos: true },
+    }),
+    prisma.ventaItem.count({
+      where: { venta: { estado: 'completada', creadoEn: { gte: desde, lt: hasta } } },
+    }),
   ]);
 
   return {
-    ventas: aNumero(cabecera[0]?.ventas),
-    totalCentavos: aNumero(cabecera[0]?.totalCentavos),
-    itemsVendidos: aNumero(detalle[0]?.itemsVendidos),
+    ventas: cabecera._count._all,
+    totalCentavos: cabecera._sum.totalCentavos ?? 0,
+    itemsVendidos,
   };
 }
 
@@ -152,21 +168,21 @@ export interface TotalPorMetodo {
 }
 
 export async function totalesPorMetodo(desde: Date): Promise<TotalPorMetodo[]> {
-  const filas = await prisma.$queryRaw<TotalPorMetodo[]>`
-    SELECT pa.metodo                          AS metodo,
-           SUM(pa.monto_centavos - pa.vuelto_centavos) AS totalCentavos,
-           COUNT(*)                           AS cantidad
-    FROM pago pa
-    JOIN venta v ON v.id = pa.venta_id
-    WHERE v.estado = 'completada' AND v.creado_en >= ${desde}
-    GROUP BY pa.metodo
-    ORDER BY totalCentavos DESC
-  `;
-  return filas.map((fila) => ({
-    metodo: String(fila.metodo),
-    totalCentavos: aNumero(fila.totalCentavos),
-    cantidad: aNumero(fila.cantidad),
-  }));
+  const agrupado = await prisma.pago.groupBy({
+    by: ['metodo'],
+    where: { venta: { estado: 'completada', creadoEn: { gte: desde } } },
+    _sum: { montoCentavos: true, vueltoCentavos: true },
+    _count: { _all: true },
+  });
+
+  return agrupado
+    .map((fila) => ({
+      metodo: fila.metodo,
+      // Neto de vuelto: lo entregado menos lo devuelto es lo que cobró el local.
+      totalCentavos: (fila._sum.montoCentavos ?? 0) - (fila._sum.vueltoCentavos ?? 0),
+      cantidad: fila._count._all,
+    }))
+    .sort((a, b) => b.totalCentavos - a.totalCentavos);
 }
 
 export interface MargenTotal {
@@ -175,16 +191,29 @@ export interface MargenTotal {
 }
 
 export async function margenEntre(desde: Date, hasta: Date): Promise<MargenTotal> {
-  const filas = await prisma.$queryRaw<MargenTotal[]>`
-    SELECT COALESCE(SUM(vi.subtotal_centavos), 0)                                     AS ventaCentavos,
-           COALESCE(SUM(p.precio_costo_centavos * vi.cantidad_milesimas / 1000), 0)   AS costoCentavos
-    FROM venta_item vi
-    JOIN venta v    ON v.id = vi.venta_id
-    JOIN producto p ON p.id = vi.producto_id
-    WHERE v.estado = 'completada' AND v.creado_en >= ${desde} AND v.creado_en < ${hasta}
-  `;
-  return {
-    ventaCentavos: Math.round(aNumero(filas[0]?.ventaCentavos)),
-    costoCentavos: Math.round(aNumero(filas[0]?.costoCentavos)),
-  };
+  const agrupado = await prisma.ventaItem.groupBy({
+    by: ['productoId'],
+    where: { venta: { estado: 'completada', creadoEn: { gte: desde, lt: hasta } } },
+    _sum: { subtotalCentavos: true, cantidadMilesimas: true },
+  });
+
+  if (agrupado.length === 0) return { ventaCentavos: 0, costoCentavos: 0 };
+
+  const productos = await prisma.producto.findMany({
+    where: { id: { in: agrupado.map((fila) => fila.productoId) } },
+    select: { id: true, precioCostoCentavos: true },
+  });
+  const costoPorId = new Map(productos.map((p) => [p.id, p.precioCostoCentavos]));
+
+  let ventaCentavos = 0;
+  let costoCentavos = 0;
+  for (const fila of agrupado) {
+    ventaCentavos += fila._sum.subtotalCentavos ?? 0;
+    const costoUnitario = costoPorId.get(fila.productoId);
+    if (costoUnitario !== undefined) {
+      costoCentavos += multiplicarPorCantidad(costoUnitario, fila._sum.cantidadMilesimas ?? 0);
+    }
+  }
+
+  return { ventaCentavos, costoCentavos };
 }

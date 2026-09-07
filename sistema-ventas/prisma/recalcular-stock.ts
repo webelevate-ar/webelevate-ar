@@ -9,12 +9,12 @@
  *   npm run bd:recalcular-stock -- --arreglar   además corrige
  */
 
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
-import { PrismaClient } from '@prisma/client';
+
 import 'dotenv/config';
 
-const url = process.env.DATABASE_URL ?? 'file:./prisma/dev.db';
-const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
+// El cliente sale del mismo archivo que usa la aplicación: si el seed eligiera
+// su propio adaptador, podría sembrar una base distinta de la que se sirve.
+import { prisma } from '../src/lib/prisma';
 
 async function main(): Promise<void> {
   const arreglar = process.argv.includes('--arreglar');

@@ -1,5 +1,7 @@
 import type { Prisma } from '@prisma/client';
+import { esPostgres, SECUENCIA_VENTA } from '../motor';
 import type { ClientePrisma } from '../prisma';
+import { conReintentos } from '../reintentos';
 import { prisma } from '../prisma';
 
 /**
@@ -32,13 +34,37 @@ export function buscarPorNumero(numero: number): Promise<VentaCompleta | null> {
 }
 
 /**
- * Siguiente número de venta, con un UPDATE atómico sobre la fila del contador.
- * `count() + 1` repite números en cuanto dos cajas cobran a la vez (§8.3).
+ * Siguiente número de venta. `count() + 1` repite números en cuanto dos cajas
+ * cobran a la vez (§8.3), así que va contra la base.
  *
- * En PostgreSQL esto se reemplaza por `nextval` de una secuencia; el resto del
- * código no cambia.
+ * ⚠️ Los dos motores lo resuelven distinto, y no por gusto:
+ *
+ * **PostgreSQL: una secuencia.** Es lo que pedía el plan y es lo único que
+ * escala. La fila de un contador, actualizada dentro de una transacción
+ * `Serializable`, es un punto caliente garantizado: todas las ventas tocan la
+ * misma fila y PostgreSQL las aborta entre sí. Con dos cajas el reintento
+ * alcanza; con veinte ventas simultáneas se agotan los reintentos y la venta
+ * falla. Medido, no supuesto. `nextval` no participa de la transacción y por
+ * eso no genera conflicto.
+ *
+ * El precio de la secuencia es que **puede dejar huecos** si una transacción
+ * se anula: la venta 41 puede seguir a la 39. Es el comportamiento correcto y
+ * es lo que hace cualquier sistema de numeración: lo que no puede pasar nunca
+ * es que dos ventas compartan número, y eso la secuencia lo garantiza.
+ *
+ * **SQLite: la fila del contador.** No tiene secuencias, y tampoco tiene el
+ * problema: escribe de a una transacción por vez.
  */
 export async function siguienteNumeroVenta(cliente: ClientePrisma): Promise<number> {
+  if (esPostgres) {
+    const filas = await cliente.$queryRawUnsafe<{ valor: number | bigint }[]>(
+      `SELECT nextval('${SECUENCIA_VENTA}') AS valor`,
+    );
+    const valor = filas[0]?.valor;
+    if (valor === undefined) throw new Error('La secuencia de ventas no devolvió un número.');
+    return Number(valor);
+  }
+
   const filas = await cliente.$queryRaw<{ valor: number }[]>`
     UPDATE contador SET valor = valor + 1 WHERE nombre = 'venta' RETURNING valor
   `;
@@ -85,59 +111,63 @@ export interface VentaAPersistir {
  * PostgreSQL para que dos cajas no lean el mismo stock antes de descontarlo.
  */
 export function crearVentaCompleta(datos: VentaAPersistir): Promise<VentaCompleta> {
-  return prisma.$transaction(
-    async (tx) => {
-      const numero = await siguienteNumeroVenta(tx);
+  // El reintento no es opcional con `Serializable`: PostgreSQL aborta una de
+  // las dos transacciones que chocan y espera que se repita. Ver reintentos.ts.
+  return conReintentos('la creación de la venta', () =>
+    prisma.$transaction(
+      async (tx) => {
+        const numero = await siguienteNumeroVenta(tx);
 
-      const venta = await tx.venta.create({
-        data: {
-          numero,
-          claveIdempotencia: datos.claveIdempotencia,
-          cajaSesionId: datos.cajaSesionId,
-          usuarioId: datos.usuarioId,
-          clienteId: datos.clienteId,
-          subtotalCentavos: datos.subtotalCentavos,
-          descuentoCentavos: datos.descuentoCentavos,
-          totalCentavos: datos.totalCentavos,
-          estado: 'completada',
-          items: { create: datos.items },
-          pagos: { create: datos.pagos },
-        },
-        include: VENTA_COMPLETA,
-      });
-
-      for (const item of datos.items) {
-        const producto = await tx.producto.update({
-          where: { id: item.productoId },
-          data: { stockMilesimas: { decrement: item.cantidadMilesimas } },
-          select: { stockMilesimas: true },
-        });
-        await tx.movimientoStock.create({
+        const venta = await tx.venta.create({
           data: {
-            productoId: item.productoId,
-            tipo: 'venta',
-            cantidadMilesimas: -item.cantidadMilesimas,
-            stockResultanteMilesimas: producto.stockMilesimas,
-            usuarioId: datos.usuarioId,
-            ventaId: venta.id,
-          },
-        });
-      }
-
-      if (datos.efectivoNetoCentavos !== 0) {
-        await tx.movimientoCaja.create({
-          data: {
+            numero,
+            claveIdempotencia: datos.claveIdempotencia,
             cajaSesionId: datos.cajaSesionId,
-            tipo: 'venta',
-            montoCentavos: datos.efectivoNetoCentavos,
             usuarioId: datos.usuarioId,
+            clienteId: datos.clienteId,
+            subtotalCentavos: datos.subtotalCentavos,
+            descuentoCentavos: datos.descuentoCentavos,
+            totalCentavos: datos.totalCentavos,
+            estado: 'completada',
+            items: { create: datos.items },
+            pagos: { create: datos.pagos },
           },
+          include: VENTA_COMPLETA,
         });
-      }
 
-      return venta;
-    },
-    { isolationLevel: 'Serializable' },
+        for (const item of datos.items) {
+          const producto = await tx.producto.update({
+            where: { id: item.productoId },
+            data: { stockMilesimas: { decrement: item.cantidadMilesimas } },
+            select: { stockMilesimas: true },
+          });
+          await tx.movimientoStock.create({
+            data: {
+              productoId: item.productoId,
+              tipo: 'venta',
+              cantidadMilesimas: -item.cantidadMilesimas,
+              stockResultanteMilesimas: producto.stockMilesimas,
+              usuarioId: datos.usuarioId,
+              ventaId: venta.id,
+            },
+          });
+        }
+
+        if (datos.efectivoNetoCentavos !== 0) {
+          await tx.movimientoCaja.create({
+            data: {
+              cajaSesionId: datos.cajaSesionId,
+              tipo: 'venta',
+              montoCentavos: datos.efectivoNetoCentavos,
+              usuarioId: datos.usuarioId,
+            },
+          });
+        }
+
+        return venta;
+      },
+      { isolationLevel: 'Serializable' },
+    ),
   );
 }
 
@@ -150,62 +180,64 @@ export function anularVenta(datos: {
   usuarioId: string;
   motivo: string;
 }): Promise<VentaCompleta> {
-  return prisma.$transaction(
-    async (tx) => {
-      const venta = await tx.venta.findUnique({
-        where: { id: datos.ventaId },
-        include: { items: true, pagos: true },
-      });
-      if (!venta) throw new Error('La venta no existe');
-
-      for (const item of venta.items) {
-        const producto = await tx.producto.update({
-          where: { id: item.productoId },
-          data: { stockMilesimas: { increment: item.cantidadMilesimas } },
-          select: { stockMilesimas: true },
+  return conReintentos('la anulación de la venta', () =>
+    prisma.$transaction(
+      async (tx) => {
+        const venta = await tx.venta.findUnique({
+          where: { id: datos.ventaId },
+          include: { items: true, pagos: true },
         });
-        await tx.movimientoStock.create({
+        if (!venta) throw new Error('La venta no existe');
+
+        for (const item of venta.items) {
+          const producto = await tx.producto.update({
+            where: { id: item.productoId },
+            data: { stockMilesimas: { increment: item.cantidadMilesimas } },
+            select: { stockMilesimas: true },
+          });
+          await tx.movimientoStock.create({
+            data: {
+              productoId: item.productoId,
+              tipo: 'devolucion',
+              cantidadMilesimas: item.cantidadMilesimas,
+              stockResultanteMilesimas: producto.stockMilesimas,
+              motivo: `Anulación de la venta ${venta.numero}`,
+              usuarioId: datos.usuarioId,
+              ventaId: venta.id,
+            },
+          });
+        }
+
+        const efectivoNeto = venta.pagos.reduce(
+          (suma, pago) =>
+            pago.metodo === 'efectivo' ? suma + pago.montoCentavos - pago.vueltoCentavos : suma,
+          0,
+        );
+        if (efectivoNeto !== 0) {
+          await tx.movimientoCaja.create({
+            data: {
+              cajaSesionId: venta.cajaSesionId,
+              tipo: 'devolucion',
+              montoCentavos: efectivoNeto,
+              motivo: `Anulación de la venta ${venta.numero}`,
+              usuarioId: datos.usuarioId,
+            },
+          });
+        }
+
+        return tx.venta.update({
+          where: { id: venta.id },
           data: {
-            productoId: item.productoId,
-            tipo: 'devolucion',
-            cantidadMilesimas: item.cantidadMilesimas,
-            stockResultanteMilesimas: producto.stockMilesimas,
-            motivo: `Anulación de la venta ${venta.numero}`,
-            usuarioId: datos.usuarioId,
-            ventaId: venta.id,
+            estado: 'anulada',
+            anuladaEn: new Date(),
+            anuladaPorId: datos.usuarioId,
+            motivoAnulacion: datos.motivo,
           },
+          include: VENTA_COMPLETA,
         });
-      }
-
-      const efectivoNeto = venta.pagos.reduce(
-        (suma, pago) =>
-          pago.metodo === 'efectivo' ? suma + pago.montoCentavos - pago.vueltoCentavos : suma,
-        0,
-      );
-      if (efectivoNeto !== 0) {
-        await tx.movimientoCaja.create({
-          data: {
-            cajaSesionId: venta.cajaSesionId,
-            tipo: 'devolucion',
-            montoCentavos: efectivoNeto,
-            motivo: `Anulación de la venta ${venta.numero}`,
-            usuarioId: datos.usuarioId,
-          },
-        });
-      }
-
-      return tx.venta.update({
-        where: { id: venta.id },
-        data: {
-          estado: 'anulada',
-          anuladaEn: new Date(),
-          anuladaPorId: datos.usuarioId,
-          motivoAnulacion: datos.motivo,
-        },
-        include: VENTA_COMPLETA,
-      });
-    },
-    { isolationLevel: 'Serializable' },
+      },
+      { isolationLevel: 'Serializable' },
+    ),
   );
 }
 

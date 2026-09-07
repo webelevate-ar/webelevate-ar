@@ -1,4 +1,5 @@
 import { prisma } from '../prisma';
+import { conReintentos } from '../reintentos';
 
 /** Repositorio de movimientos de stock. */
 
@@ -26,24 +27,26 @@ export function registrarMovimiento(datos: {
   motivo: string;
   usuarioId: string;
 }) {
-  return prisma.$transaction(async (tx) => {
-    const producto = await tx.producto.update({
-      where: { id: datos.productoId },
-      data: { stockMilesimas: { increment: datos.cantidadMilesimas } },
-      select: { id: true, nombre: true, stockMilesimas: true },
-    });
+  return conReintentos('el movimiento de stock', () =>
+    prisma.$transaction(async (tx) => {
+      const producto = await tx.producto.update({
+        where: { id: datos.productoId },
+        data: { stockMilesimas: { increment: datos.cantidadMilesimas } },
+        select: { id: true, nombre: true, stockMilesimas: true },
+      });
 
-    const movimiento = await tx.movimientoStock.create({
-      data: {
-        productoId: datos.productoId,
-        tipo: datos.tipo,
-        cantidadMilesimas: datos.cantidadMilesimas,
-        stockResultanteMilesimas: producto.stockMilesimas,
-        motivo: datos.motivo,
-        usuarioId: datos.usuarioId,
-      },
-    });
+      const movimiento = await tx.movimientoStock.create({
+        data: {
+          productoId: datos.productoId,
+          tipo: datos.tipo,
+          cantidadMilesimas: datos.cantidadMilesimas,
+          stockResultanteMilesimas: producto.stockMilesimas,
+          motivo: datos.motivo,
+          usuarioId: datos.usuarioId,
+        },
+      });
 
-    return { movimiento, producto };
-  });
+      return { movimiento, producto };
+    }),
+  );
 }

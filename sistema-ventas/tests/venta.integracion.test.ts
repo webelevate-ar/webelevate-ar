@@ -226,7 +226,7 @@ describe('concurrencia', () => {
     expect(una.venta.numero).not.toBe(otra.venta.numero);
   });
 
-  it('veinte ventas seguidas no repiten ni saltean números', async () => {
+  it('veinte ventas simultáneas no repiten números', async () => {
     const antes = await prisma.venta.count();
 
     await Promise.all(
@@ -250,6 +250,11 @@ describe('concurrencia', () => {
       (fila) => fila.numero,
     );
     expect(numeros).toHaveLength(antes + 20);
+
+    // Lo que se exige es que **no se repitan**. No que sean consecutivos: en
+    // PostgreSQL el número sale de una secuencia y una transacción anulada deja
+    // un hueco. Un hueco es normal en cualquier numeración; dos ventas con el
+    // mismo número serían un problema de verdad.
     expect(new Set(numeros).size).toBe(numeros.length);
   });
 });

@@ -25,11 +25,10 @@ export async function resumen(dias = 30): Promise<ResumenPanel> {
   const inicioDeAyer = new Date(inicioDeHoy.getTime() - 86_400_000);
   const desde = new Date(inicioDeHoy.getTime() - dias * 86_400_000);
 
-  const [hoy, ayer, porDia, porHora, porMetodo, ranking, margen, bajoMinimo] = await Promise.all([
+  const [hoy, ayer, porDiaYHora, porMetodo, ranking, margen, bajoMinimo] = await Promise.all([
     repoPanel.resumenEntre(inicioDeHoy, new Date(inicioDeHoy.getTime() + 86_400_000)),
     repoPanel.resumenEntre(inicioDeAyer, inicioDeHoy),
-    repoPanel.totalesPorDia(desde),
-    repoPanel.ventasPorHora(desde),
+    repoPanel.totalesPorDiaYHora(desde),
     repoPanel.totalesPorMetodo(desde),
     repoPanel.rankingProductos(desde),
     repoPanel.margenEntre(desde, new Date()),
@@ -41,11 +40,11 @@ export async function resumen(dias = 30): Promise<ResumenPanel> {
     ayer: conTicketPromedio(ayer),
     variacionCentesimas: variacion(ayer.totalCentavos, hoy.totalCentavos),
     margenCentesimas: calcularMargenCentesimas(margen.ventaCentavos, margen.costoCentavos),
-    porDia,
-    porHora,
+    porDia: porDiaYHora.porDia,
+    porHora: porDiaYHora.porHora,
     porMetodo,
     ranking,
-    productosBajoMinimo: Number(bajoMinimo[0]?.total ?? 0),
+    productosBajoMinimo: bajoMinimo,
   };
 }
 

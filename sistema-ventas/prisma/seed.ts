@@ -8,8 +8,7 @@
  *   npm run bd:sembrar
  */
 
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
-import { PrismaClient, type Prisma } from '@prisma/client';
+import { type Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import 'dotenv/config';
 import { crearAleatorio, type Aleatorio } from './aleatorio';
@@ -24,8 +23,10 @@ const PRODUCTOS_BAJO_MINIMO = 15;
 const COSTO_BCRYPT = 11;
 const MILESIMAS_POR_UNIDAD_SEED = 1000;
 
-const url = process.env.DATABASE_URL ?? 'file:./prisma/dev.db';
-const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
+// El cliente sale del mismo archivo que usa la aplicación: si el seed eligiera
+// su propio adaptador, podría sembrar una base distinta de la que se sirve.
+import { esPostgres, SECUENCIA_VENTA } from '../src/lib/motor';
+import { prisma } from '../src/lib/prisma';
 
 /** Cuántos productos lleva cada categoría. Los tres de peso suman 20 (§2). */
 const REPARTO_PRODUCTOS: Record<string, number> = {
@@ -715,7 +716,13 @@ async function main(): Promise<void> {
     });
   }
 
+  // Cada motor guarda el próximo número donde corresponde. Si esto no se
+  // hiciera, la primera venta después del seed repetiría el número 1 y chocaría
+  // con la restricción de unicidad.
   await prisma.contador.create({ data: { nombre: 'venta', valor: numeroVenta } });
+  if (esPostgres) {
+    await prisma.$executeRawUnsafe(`SELECT setval('${SECUENCIA_VENTA}', ${numeroVenta})`);
+  }
 
   // ─── Resumen ───────────────────────────────────────────────────────────────
   const bajoMinimo = productos.filter(

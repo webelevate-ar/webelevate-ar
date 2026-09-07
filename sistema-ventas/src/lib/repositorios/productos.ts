@@ -128,31 +128,53 @@ export async function listarPaginado(filtro: FiltroListado) {
   return { total, filas: visibles };
 }
 
-/** Los productos bajo el mínimo, para la alerta. Consulta cruda por lo mismo. */
-export function listarBajoMinimo(limite = 50) {
-  return prisma.$queryRaw<
+/**
+ * Los productos bajo el mínimo.
+ *
+ * Va en SQL crudo porque compara dos columnas de la misma fila y eso Prisma no
+ * lo expresa. Es el único SQL crudo que queda en el proyecto.
+ *
+ * ⚠️ Decía `WHERE activo = 1`, que en PostgreSQL falla con
+ * `operator does not exist: boolean = integer`. `WHERE activo` a secas es
+ * válido en los dos motores: en SQLite el 1 es verdadero y en PostgreSQL la
+ * columna ya es booleana. Lo encontró correr la aplicación contra PostgreSQL.
+ */
+export async function listarBajoMinimo(limite = 50) {
+  const filas = await prisma.$queryRaw<
     {
       id: string;
       sku: string;
       nombre: string;
       unidad: string;
-      stock_milesimas: number;
-      stock_minimo_milesimas: number;
+      stock_milesimas: number | bigint;
+      stock_minimo_milesimas: number | bigint;
     }[]
   >`
     SELECT id, sku, nombre, unidad, stock_milesimas, stock_minimo_milesimas
     FROM producto
-    WHERE activo = 1 AND stock_milesimas < stock_minimo_milesimas
+    WHERE activo AND stock_milesimas < stock_minimo_milesimas
     ORDER BY (stock_milesimas - stock_minimo_milesimas) ASC
     LIMIT ${limite}
   `;
+
+  return filas.map((fila) => ({
+    id: fila.id,
+    sku: fila.sku,
+    nombre: fila.nombre,
+    unidad: fila.unidad,
+    stock_milesimas: Number(fila.stock_milesimas),
+    stock_minimo_milesimas: Number(fila.stock_minimo_milesimas),
+  }));
 }
 
-export function contarBajoMinimo() {
-  return prisma.$queryRaw<{ total: number }[]>`
+export async function contarBajoMinimo(): Promise<number> {
+  // `COUNT(*)` vuelve como BigInt en los dos motores: se normaliza acá y afuera
+  // nadie tiene que acordarse.
+  const filas = await prisma.$queryRaw<{ total: number | bigint }[]>`
     SELECT COUNT(*) AS total FROM producto
-    WHERE activo = 1 AND stock_milesimas < stock_minimo_milesimas
+    WHERE activo AND stock_milesimas < stock_minimo_milesimas
   `;
+  return Number(filas[0]?.total ?? 0);
 }
 
 export interface DatosProductoPersistible {

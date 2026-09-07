@@ -14,3 +14,7 @@ next-env.d.ts
 tsconfig.tsbuildinfo
 test-results
 playwright-report
+
+# Derivado de schema.prisma al usar MOTOR=postgresql. No se versiona: la fuente
+# de verdad es schema.prisma y este se regenera solo.
+prisma/schema.postgresql.prisma
