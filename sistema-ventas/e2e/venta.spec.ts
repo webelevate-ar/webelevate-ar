@@ -3,10 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 /**
  * Los flujos críticos del §9, contra la aplicación de verdad a 1366×768.
  *
- * El que falta es el número 3, venta offline con reconexión y sincronización:
- * el modo offline es la sesión 9 del plan y todavía no está implementado. Se
- * deja dicho acá y no se simula: un test que finge probar algo que no existe
- * es peor que no tenerlo.
+ * El de venta offline con reconexión y sincronización está aparte, en
+ * `offline.spec.ts`: necesita cortarle la red al navegador y esperar al service
+ * worker, y mezclarlo acá haría lento un archivo que no lo necesita.
  */
 
 const PIN_CAJERO = '1111';

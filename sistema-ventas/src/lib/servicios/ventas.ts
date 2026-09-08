@@ -80,6 +80,38 @@ export async function crearVenta(
   const descuento = calcularDescuentoPorPorcentaje(subtotal, datos.descuentoPorcentajeCentesimas);
   const total = calcularTotal(subtotal, descuento);
 
+  /*
+   * Una venta que estuvo en la cola offline se cobró con el precio que tenía el
+   * espejo del catálogo. El total lo acaba de recalcular el paso 3 con el
+   * precio de hoy, que es la regla que no se toca. Si los dos números no
+   * coinciden, la venta **no entra**.
+   *
+   * Podría entrar: alcanzaría con anotar la diferencia como descuento y quedaría
+   * todo cuadrado. No se hace, y la razón es concreta: cualquier cajero podría
+   * armar un pedido diciendo que es "offline" con un total menor, y darse solo
+   * el descuento que el sistema le pide autorizar con PIN de supervisor (§8.6).
+   *
+   * El precio de rechazarla es que alguien tenga que resolverla a mano. No es
+   * gratis, pero es visible: la venta queda en la cola, en rojo, con los dos
+   * importes escritos. Lo otro sería un agujero silencioso.
+   *
+   * Se compara contra el total y no solo contra "alcanza o no alcanza" porque
+   * un precio que **bajó** también rompe: el servidor calcularía un vuelto que
+   * el cliente nunca recibió, y ese vuelto de mentira descuadra el arqueo.
+   */
+  if (
+    datos.cobradaSinConexionEn &&
+    datos.totalCobradoCentavos !== null &&
+    datos.totalCobradoCentavos !== total
+  ) {
+    throw ErrorApp.conflicto(
+      CODIGOS.PRECIO_DESFASADO,
+      `Se cobró ${(datos.totalCobradoCentavos / 100).toFixed(2)} sin conexión y hoy esos ` +
+        `productos suman ${(total / 100).toFixed(2)}: algún precio cambió en el medio. ` +
+        'Resolvela a mano desde la pantalla de ventas sin sincronizar.',
+    );
+  }
+
   // 4. El descuento manual lo autoriza un supervisor, verificado en el
   //    servidor. Que el cajero no vea el botón no alcanza (§8.6).
   let autorizadoPor: { usuarioId: string; nombre: string } | null = null;
@@ -136,6 +168,32 @@ export async function crearVenta(
     pagos: pagosAPersistir,
     efectivoNetoCentavos: efectivoNeto,
   });
+
+  /*
+   * 6. Queda escrito que esta venta se cobró sin conexión, con la hora real del
+   *    cobro. Sin esto no habría forma de saber cuáles fueron offline, y esa es
+   *    la primera pregunta cuando un arqueo no cierra o cuando el orden de los
+   *    números de venta no coincide con el rollo de la caja.
+   */
+  if (datos.cobradaSinConexionEn) {
+    await auditoria.registrar({
+      usuarioId: sesion.usuarioId,
+      accion: 'venta_offline',
+      entidad: 'Venta',
+      entidadId: venta.id,
+      datosAntes: { cobradaEn: datos.cobradaSinConexionEn },
+      datosDespues: {
+        numero: venta.numero,
+        totalCentavos: total,
+        // Cuánto tardó en llegar al servidor. Un número grande acá es un corte
+        // largo, y explica por qué una venta de la mañana tiene número de tarde.
+        demoraMinutos: Math.round(
+          (Date.now() - new Date(datos.cobradaSinConexionEn).getTime()) / 60_000,
+        ),
+      },
+      ip,
+    });
+  }
 
   if (autorizadoPor) {
     await auditoria.registrar({

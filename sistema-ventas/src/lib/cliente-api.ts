@@ -5,7 +5,12 @@
  * una excepción con el mensaje ya listo para mostrar. Así ninguna pantalla
  * tiene que inventar un texto para un fallo, que es de donde salen los
  * "Error 500" en la cara del cajero (§7.2).
+ *
+ * Además es el único lugar del sistema que sabe, de verdad, si se llega al
+ * servidor: cada petición que pasa por acá actualiza el estado de conexión.
  */
+
+import { marcarAlcanzable, marcarInalcanzable } from './offline/conexion';
 
 export class ErrorDeApi extends Error {
   readonly codigo: string;
@@ -37,8 +42,12 @@ async function pedir<T>(ruta: string, opciones: RequestInit = {}): Promise<T> {
       ...opciones,
       headers: { 'Content-Type': 'application/json', ...(opciones.headers ?? {}) },
     });
+    // Cualquier respuesta, aunque sea un 500, prueba que se llega al servidor.
+    // Es la única señal confiable de que hay conexión: ver offline/conexion.ts.
+    marcarAlcanzable();
   } catch {
     // Sin red no hay `status`: el mensaje tiene que decir eso y no "falló algo".
+    marcarInalcanzable();
     throw new ErrorDeApi(
       'SIN_CONEXION',
       'No hay conexión con el servidor. Revisá la red y probá de nuevo.',

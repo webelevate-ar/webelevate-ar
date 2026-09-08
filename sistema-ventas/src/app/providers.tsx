@@ -21,7 +21,24 @@ export function Providers({ children }: { children: ReactNode }) {
             staleTime: 30_000,
             refetchOnWindowFocus: false,
             retry: 1,
+            /*
+             * ⚠️ Esto es lo que hace posible el modo offline, y cuesta
+             * encontrarlo: por defecto TanStack Query **pausa** toda consulta
+             * cuando `navigator.onLine` da falso. La consulta no falla, no
+             * reintenta y no llama a su `queryFn`: queda esperando en silencio.
+             *
+             * Con eso puesto, el respaldo contra el espejo del catálogo nunca
+             * se ejecutaría —el código que lee IndexedDB vive dentro del
+             * `queryFn`— y la pantalla de venta se quedaría en el esqueleto
+             * para siempre justo cuando se corta internet, que es el único
+             * momento en que el modo offline tiene sentido.
+             *
+             * Y hay una razón más: `navigator.onLine` miente. Ver el
+             * encabezado de `lib/offline/conexion.ts`.
+             */
+            networkMode: 'always',
           },
+          mutations: { networkMode: 'always' },
         },
       }),
   );

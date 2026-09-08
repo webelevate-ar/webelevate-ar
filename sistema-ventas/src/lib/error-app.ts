@@ -19,6 +19,8 @@ export const CODIGOS = {
   CAJA_CERRADA: 'CAJA_CERRADA',
   CAJA_YA_ABIERTA: 'CAJA_YA_ABIERTA',
   VENTA_YA_ANULADA: 'VENTA_YA_ANULADA',
+  /** El precio cambió entre que se cobró sin conexión y que se sincronizó. */
+  PRECIO_DESFASADO: 'PRECIO_DESFASADO',
   DEMASIADOS_INTENTOS: 'DEMASIADOS_INTENTOS',
   ERROR_INTERNO: 'ERROR_INTERNO',
 } as const;

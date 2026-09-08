@@ -89,6 +89,24 @@ const config = [
     },
   },
   {
+    /*
+     * El service worker no corre en una página: no tiene `window` ni `document`,
+     * y sí tiene `self`, `caches` y `clients`. Sin declararlos acá, la regla de
+     * variables no definidas marcaría como error el vocabulario propio del
+     * entorno. Se declaran los que se usan y ninguno más.
+     */
+    files: ['public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        fetch: 'readonly',
+        URL: 'readonly',
+        Promise: 'readonly',
+      },
+    },
+  },
+  {
     files: ['prisma/**/*.ts', 'tests/**/*.ts', '*.config.*'],
     rules: { 'no-console': 'off' },
   },

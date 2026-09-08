@@ -14,7 +14,7 @@ export default async function LayoutApp({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <BarraNavegacion nombre={sesion.nombre} rol={sesion.rol} />
+      <BarraNavegacion usuarioId={sesion.usuarioId} nombre={sesion.nombre} rol={sesion.rol} />
       <main className="flex-1">{children}</main>
     </div>
   );

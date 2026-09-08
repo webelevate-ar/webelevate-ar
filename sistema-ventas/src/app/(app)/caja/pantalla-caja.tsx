@@ -8,9 +8,15 @@ import { Dialogo } from '@/components/ui/dialogo';
 import { Aviso, EsqueletoFilas, EstadoError, EstadoVacio } from '@/components/ui/estados';
 import { Insignia } from '@/components/ui/insignia';
 import { useEstadoDeCaja } from '@/hooks/use-caja';
+import { useCola } from '@/hooks/use-cola';
 import { api, mensajeDeError } from '@/lib/cliente-api';
 import { parsearMontoACentavos } from '@/lib/dinero';
-import { formatearDiferencia, formatearFechaHora, formatearHora, formatearMoneda } from '@/lib/formato';
+import {
+  formatearDiferencia,
+  formatearFechaHora,
+  formatearHora,
+  formatearMoneda,
+} from '@/lib/formato';
 import { NOMBRE_TIPO_MOVIMIENTO_CAJA, type TipoMovimientoCaja } from '@/lib/validacion/enums';
 
 interface MovimientoDeCaja {
@@ -40,9 +46,10 @@ interface ResultadoCierre {
  * no muestra en ningún lado cuánto tendría que haber. Si se lo mostrara, el
  * control no existiría — escribiría ese número y listo.
  */
-export function PantallaCaja() {
+export function PantallaCaja({ usuarioId }: { usuarioId: string }) {
   const clienteQuery = useQueryClient();
   const caja = useEstadoDeCaja();
+  const { resumen: cola, sinAlmacen } = useCola(usuarioId);
   const [cerrando, setCerrando] = useState(false);
   const [moviendo, setMoviendo] = useState<'retiro' | 'ingreso' | null>(null);
   const [resultado, setResultado] = useState<ResultadoCierre | null>(null);
@@ -85,6 +92,17 @@ export function PantallaCaja() {
   const sesion = caja.data.sesion;
   const totales = caja.data.totales;
 
+  /*
+   * La caja no se cierra con ventas en la cola, y no es una comodidad: el
+   * arqueo compara lo contado contra lo que el servidor dice que se vendió. Una
+   * venta que todavía está en esta PC no está en esa cuenta, así que el efectivo
+   * aparecería como sobrante y quedaría escrito como diferencia de caja del
+   * cajero. Es la trampa entera del modo offline: sin este bloqueo, el sistema
+   * le pondría al cajero un faltante propio en el legajo.
+   */
+  const sinSincronizar = cola.enCola + cola.rechazadas + cola.deOtroUsuario;
+  const bloqueaCierre = sinSincronizar > 0 || sinAlmacen;
+
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -102,11 +120,37 @@ export function PantallaCaja() {
           <Boton variante="contorno" onClick={() => setMoviendo('retiro')}>
             Retiro
           </Boton>
-          <Boton variante="acento" onClick={() => setCerrando(true)}>
+          <Boton variante="acento" onClick={() => setCerrando(true)} disabled={bloqueaCierre}>
             Cerrar caja
           </Boton>
         </div>
       </header>
+
+      {caja.data.espejoDe ? (
+        <Aviso tipo="advertencia">
+          Sin conexión: estos totales son los de las{' '}
+          {formatearHora(new Date(caja.data.espejoDe))} y les faltan las ventas que se cobraron
+          después. No cierres la caja con estos números.
+        </Aviso>
+      ) : null}
+
+      {sinSincronizar > 0 ? (
+        <Aviso tipo="advertencia">
+          Hay {sinSincronizar} venta(s) cobradas en esta PC que todavía no están en el servidor.
+          La caja no se puede cerrar hasta que entren: el arqueo no las cuenta y ese efectivo
+          figuraría como sobrante.{' '}
+          <a className="underline" href="/pendientes">
+            Ver las ventas sin sincronizar
+          </a>
+        </Aviso>
+      ) : null}
+
+      {sinAlmacen ? (
+        <Aviso tipo="error">
+          No se pudo leer el almacén local, así que no se sabe si quedaron ventas sin sincronizar.
+          Hasta saberlo, la caja no se cierra: un arqueo con ventas afuera queda mal para siempre.
+        </Aviso>
+      ) : null}
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="Totales del turno">
         <Tarjeta titulo="Ventas" valor={String(totales?.cantidadVentas ?? 0)} />

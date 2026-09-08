@@ -89,6 +89,8 @@ describe('crear una venta', () => {
         descuentoPorcentajeCentesimas: 0,
         clienteId: null,
         pinSupervisor: null,
+        cobradaSinConexionEn: null,
+        totalCobradoCentavos: null,
       },
       sesionCajero,
       null,
@@ -127,6 +129,8 @@ describe('crear una venta', () => {
         descuentoPorcentajeCentesimas: 0,
         clienteId: null,
         pinSupervisor: null,
+        cobradaSinConexionEn: null,
+        totalCobradoCentavos: null,
       },
       sesionCajero,
       null,
@@ -151,6 +155,8 @@ describe('crear una venta', () => {
           descuentoPorcentajeCentesimas: 0,
           clienteId: null,
           pinSupervisor: null,
+          cobradaSinConexionEn: null,
+          totalCobradoCentavos: null,
         },
         sesionCajero,
         null,
@@ -174,6 +180,8 @@ describe('idempotencia', () => {
       descuentoPorcentajeCentesimas: 0,
       clienteId: null,
       pinSupervisor: null,
+      cobradaSinConexionEn: null,
+      totalCobradoCentavos: null,
     };
 
     const stockAntes = (await prisma.producto.findUniqueOrThrow({ where: { id: productoId } }))
@@ -208,6 +216,8 @@ describe('concurrencia', () => {
           descuentoPorcentajeCentesimas: 0,
           clienteId: null,
           pinSupervisor: null,
+          cobradaSinConexionEn: null,
+          totalCobradoCentavos: null,
         },
         sesionCajero,
         null,
@@ -239,6 +249,8 @@ describe('concurrencia', () => {
             descuentoPorcentajeCentesimas: 0,
             clienteId: null,
             pinSupervisor: null,
+            cobradaSinConexionEn: null,
+            totalCobradoCentavos: null,
           },
           sesionCajero,
           null,
@@ -259,6 +271,121 @@ describe('concurrencia', () => {
   });
 });
 
+describe('ventas cobradas sin conexión', () => {
+  it('entra, y queda registrado que fue offline y cuánto tardó en llegar', async () => {
+    const cobradaEn = new Date(Date.now() - 90 * 60_000).toISOString();
+
+    const { venta } = await servicioVentas.crearVenta(
+      {
+        claveIdempotencia: crypto.randomUUID(),
+        items: [{ productoId, cantidadMilesimas: 1000 }],
+        pagos: [{ metodo: 'efectivo', montoCentavos: 250_000 }],
+        descuentoPorcentajeCentesimas: 0,
+        clienteId: null,
+        pinSupervisor: null,
+        cobradaSinConexionEn: cobradaEn,
+        totalCobradoCentavos: 250_000,
+      },
+      sesionCajero,
+      null,
+    );
+
+    expect(venta.totalCentavos).toBe(250_000);
+
+    const registro = await prisma.auditLog.findFirst({
+      where: { accion: 'venta_offline', entidadId: venta.id },
+    });
+    expect(registro).not.toBeNull();
+
+    // La demora explica por qué una venta de hace hora y media tiene número de
+    // ahora: sin ese dato, el historial parece desordenado y nadie sabe por qué.
+    const despues = JSON.parse(registro?.datosDespues ?? '{}') as { demoraMinutos: number };
+    expect(despues.demoraMinutos).toBeGreaterThanOrEqual(89);
+  });
+
+  it('si el precio cambió en el medio, no entra: se rechaza con los dos importes', async () => {
+    /*
+     * El caso: se cobró $2.400 sin conexión y hoy el producto vale $2.500.
+     * Aceptarla anotando los $100 como descuento cuadraría todo, y sería un
+     * agujero: cualquier cajero podría darse un descuento diciendo que la venta
+     * fue offline. Se rechaza, queda visible, y la resuelve una persona.
+     */
+    await expect(
+      servicioVentas.crearVenta(
+        {
+          claveIdempotencia: crypto.randomUUID(),
+          items: [{ productoId, cantidadMilesimas: 1000 }],
+          pagos: [{ metodo: 'efectivo', montoCentavos: 240_000 }],
+          descuentoPorcentajeCentesimas: 0,
+          clienteId: null,
+          pinSupervisor: null,
+          cobradaSinConexionEn: new Date().toISOString(),
+          totalCobradoCentavos: 240_000,
+        },
+        sesionCajero,
+        null,
+      ),
+    ).rejects.toMatchObject({ codigo: 'PRECIO_DESFASADO' });
+  });
+
+  it('un precio que bajó también se rechaza, y no por capricho', async () => {
+    // Si entrara, el servidor calcularía un vuelto de $100 que el cliente nunca
+    // recibió, y ese vuelto de mentira saldría del cajón en el arqueo.
+    await expect(
+      servicioVentas.crearVenta(
+        {
+          claveIdempotencia: crypto.randomUUID(),
+          items: [{ productoId, cantidadMilesimas: 1000 }],
+          pagos: [{ metodo: 'efectivo', montoCentavos: 260_000 }],
+          descuentoPorcentajeCentesimas: 0,
+          clienteId: null,
+          pinSupervisor: null,
+          cobradaSinConexionEn: new Date().toISOString(),
+          totalCobradoCentavos: 260_000,
+        },
+        sesionCajero,
+        null,
+      ),
+    ).rejects.toMatchObject({ codigo: 'PRECIO_DESFASADO' });
+  });
+
+  it('reenviarla no cobra dos veces ni duplica el registro de auditoría', async () => {
+    // Es exactamente lo que hace la cola al reintentar: manda la misma clave.
+    const clave = crypto.randomUUID();
+    const cuerpo = {
+      claveIdempotencia: clave,
+      items: [{ productoId, cantidadMilesimas: 1000 }],
+      pagos: [{ metodo: 'efectivo' as const, montoCentavos: 250_000 }],
+      descuentoPorcentajeCentesimas: 0,
+      clienteId: null,
+      pinSupervisor: null,
+      cobradaSinConexionEn: new Date().toISOString(),
+      totalCobradoCentavos: 250_000,
+    };
+
+    const stockAntes = (await prisma.producto.findUniqueOrThrow({ where: { id: productoId } }))
+      .stockMilesimas;
+
+    const primera = await servicioVentas.crearVenta(cuerpo, sesionCajero, null);
+    const segunda = await servicioVentas.crearVenta(cuerpo, sesionCajero, null);
+
+    expect(primera.yaExistia).toBe(false);
+    expect(segunda.yaExistia).toBe(true);
+    expect(segunda.venta.id).toBe(primera.venta.id);
+
+    const stockDespues = (await prisma.producto.findUniqueOrThrow({ where: { id: productoId } }))
+      .stockMilesimas;
+    // Una sola vez descontado: si el reintento descontara de nuevo, el stock
+    // quedaría mal y nadie lo notaría hasta el recuento.
+    expect(stockAntes - stockDespues).toBe(1000);
+
+    const registros = await prisma.auditLog.count({
+      where: { accion: 'venta_offline', entidadId: primera.venta.id },
+    });
+    expect(registros).toBe(1);
+  });
+});
+
 describe('anulación', () => {
   it('devuelve el stock y genera el movimiento inverso de caja', async () => {
     const { venta } = await servicioVentas.crearVenta(
@@ -269,6 +396,8 @@ describe('anulación', () => {
         descuentoPorcentajeCentesimas: 0,
         clienteId: null,
         pinSupervisor: null,
+        cobradaSinConexionEn: null,
+        totalCobradoCentavos: null,
       },
       sesionCajero,
       null,

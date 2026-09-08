@@ -11,6 +11,7 @@
 export const NOMBRE_ACCION: Record<string, string> = {
   anulacion_venta: 'Anulación de venta',
   descuento_manual: 'Descuento manual',
+  venta_offline: 'Venta cobrada sin conexión',
   retiro_caja: 'Retiro de caja',
   ingreso_caja: 'Ingreso de caja',
   cierre_caja_con_diferencia: 'Cierre de caja con diferencia',

@@ -20,21 +20,16 @@ import {
   type CategoriaDeCatalogo,
   type ProductoDeCatalogo,
 } from '@/hooks/use-catalogo';
+import { useConexion } from '@/hooks/use-conexion';
 import { useSonido } from '@/hooks/use-sonido';
-import { api, mensajeDeError } from '@/lib/cliente-api';
-import { formatearMoneda } from '@/lib/formato';
+import { CLAVE_COLA } from '@/hooks/use-cola';
+import { mensajeDeError } from '@/lib/cliente-api';
+import { calcularVuelto } from '@/lib/dinero';
+import { formatearHora, formatearMoneda } from '@/lib/formato';
+import type { VentaPendiente } from '@/lib/offline/cola';
+import { cobrarOEncolar, type ResultadoCobro, type VentaCreada } from '@/lib/offline/sincronizacion';
 import { calcularTotales, useCarrito } from '@/store/carrito';
 import type { Unidad } from '@/lib/validacion/enums';
-
-interface VentaCreada {
-  venta: {
-    id: string;
-    numero: number;
-    totalCentavos: number;
-    pagos: { metodo: string; montoCentavos: number; vueltoCentavos: number }[];
-  };
-  yaExistia: boolean;
-}
 
 /**
  * La pantalla de venta.
@@ -48,11 +43,12 @@ interface VentaCreada {
  *   · el catálogo está en memoria, así que filtrar no espera a la red;
  *   · no hay ni un modal de confirmación en el camino del cobro.
  */
-export function PantallaVenta() {
+export function PantallaVenta({ usuarioId, nombre }: { usuarioId: string; nombre: string }) {
   const clienteQuery = useQueryClient();
   const catalogo = useCatalogo();
   const caja = useEstadoDeCaja();
   const sonido = useSonido();
+  const enLinea = useConexion();
 
   const [texto, setTexto] = useState('');
   const [aviso, setAviso] = useState<string | null>(null);
@@ -61,7 +57,7 @@ export function PantallaVenta() {
   const [pesando, setPesando] = useState<ProductoDeCatalogo | null>(null);
   const [descontando, setDescontando] = useState(false);
   const [cancelando, setCancelando] = useState(false);
-  const [vuelto, setVuelto] = useState<{ centavos: number; numero: number } | null>(null);
+  const [vuelto, setVuelto] = useState<{ centavos: number; numero: number | null } | null>(null);
   const [ultimaVenta, setUltimaVenta] = useState<VentaCreada['venta'] | null>(null);
   const [errorCobro, setErrorCobro] = useState<string | null>(null);
 
@@ -145,29 +141,59 @@ export function PantallaVenta() {
     agregarProducto(elegido);
   }, [agregarProducto, enfocarBuscador, exacto, resultados, sonido, texto]);
 
-  const cobro = useMutation({
-    mutationFn: (pagos: PagoCargado[]) =>
-      api.post<VentaCreada>('/api/ventas', {
+  /**
+   * El cobro.
+   *
+   * Es el mismo camino con conexión y sin ella, y esa es la idea: si el cajero
+   * tuviera que apretar otra cosa cuando se corta internet, el modo offline no
+   * serviría —justo cuando hay que ir rápido, hay que acordarse de algo—.
+   * `cobrarOEncolar` decide: si llega al servidor cobra, y si no, guarda la
+   * venta en la cola local con su clave de idempotencia.
+   *
+   * El vuelto se calcula acá y no se espera al servidor. Es la misma función
+   * que usa el servidor (`calcularVuelto`), así que da el mismo número, y sin
+   * conexión no hay otra: el cliente está esperando el cambio.
+   */
+  const cobro = useMutation<ResultadoCobro, Error, PagoCargado[]>({
+    mutationFn: (pagos) => {
+      const pendiente: VentaPendiente = {
         claveIdempotencia,
+        usuarioId,
+        usuarioNombre: nombre,
+        cobradaEn: Date.now(),
         items: items.map((item) => ({
           productoId: item.productoId,
+          nombre: item.nombre,
+          unidad: item.unidad,
+          precioUnitarioCentavos: item.precioUnitarioCentavos,
           cantidadMilesimas: item.cantidadMilesimas,
         })),
         pagos,
-        descuentoPorcentajeCentesimas: descuentoPorcentaje,
         clienteId: null,
+        totalCobradoCentavos: totales.totalCentavos,
+        vueltoCentavos: calcularVuelto(totales.totalCentavos, pagos),
+        intentos: 0,
+        estado: 'en_cola',
+        ultimoError: null,
+      };
+      return cobrarOEncolar(pendiente, {
+        descuentoPorcentajeCentesimas: descuentoPorcentaje,
         pinSupervisor,
-      }),
-    onSuccess: (respuesta) => {
-      const vueltoTotal = respuesta.venta.pagos.reduce(
-        (suma, pago) => suma + pago.vueltoCentavos,
-        0,
-      );
-      setUltimaVenta(respuesta.venta);
-      setVuelto({ centavos: vueltoTotal, numero: respuesta.venta.numero });
+      });
+    },
+    onSuccess: (resultado, pagos) => {
+      const vueltoTotal = resultado.venta
+        ? resultado.venta.pagos.reduce((suma, pago) => suma + pago.vueltoCentavos, 0)
+        : calcularVuelto(totales.totalCentavos, pagos);
+
+      setUltimaVenta(resultado.venta);
+      // Sin número: la venta quedó en la cola y el número lo asigna el servidor
+      // al sincronizar. Decir "Venta 0" o inventar uno sería peor que no decir.
+      setVuelto({ centavos: vueltoTotal, numero: resultado.venta?.numero ?? null });
       setErrorCobro(null);
       setModo('venta');
       limpiar();
+      void clienteQuery.invalidateQueries({ queryKey: CLAVE_COLA });
       void clienteQuery.invalidateQueries({ queryKey: ['caja'] });
       void clienteQuery.invalidateQueries({ queryKey: ['catalogo'] });
     },
@@ -217,7 +243,18 @@ export function PantallaVenta() {
         }
         case 'F8':
           evento.preventDefault();
-          if (items.length > 0) setDescontando(true);
+          if (items.length === 0) break;
+          // Se avisa acá y no en el cobro: enterarse de que el descuento no se
+          // puede aplicar con el cliente esperando el total es tarde.
+          if (!enLinea) {
+            sonido.error();
+            setAviso(
+              'Sin conexión no se puede autorizar un descuento: el PIN del supervisor lo ' +
+                'verifica el servidor.',
+            );
+            break;
+          }
+          setDescontando(true);
           break;
         case 'F9':
           evento.preventDefault();
@@ -271,6 +308,7 @@ export function PantallaVenta() {
     cancelando,
     descontando,
     enfocarBuscador,
+    enLinea,
     indiceSeleccionado,
     irACobrar,
     items,
@@ -279,6 +317,7 @@ export function PantallaVenta() {
     pesando,
     productos,
     resultados,
+    sonido,
     sumarUnidad,
     suspender,
     texto,
@@ -370,6 +409,14 @@ export function PantallaVenta() {
               alElegir={agregarProducto}
               aviso={aviso}
             />
+
+            {catalogo.data?.espejoDe ? (
+              <Aviso tipo="advertencia" className="shrink-0">
+                Sin conexión: se está vendiendo con el catálogo de las{' '}
+                {formatearHora(new Date(catalogo.data.espejoDe))}. Las ventas quedan guardadas en
+                esta PC y se mandan solas cuando vuelva la red.
+              </Aviso>
+            ) : null}
 
             {suspendidas.length > 0 ? (
               <div className="flex shrink-0 flex-wrap items-center gap-2">

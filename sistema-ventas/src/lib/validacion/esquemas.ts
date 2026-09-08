@@ -66,6 +66,19 @@ export const esquemaCrearVenta = z.object({
   clienteId: z.string().nullable().default(null),
   /** Solo se manda cuando hay descuento: lo tiene que autorizar un supervisor. */
   pinSupervisor: z.string().regex(/^\d{4}$/).nullable().default(null),
+  /**
+   * Cuándo se cobró, si se cobró sin conexión y estuvo en la cola local.
+   * En una venta normal es `null` y no cambia nada.
+   */
+  cobradaSinConexionEn: z.iso.datetime().nullable().default(null),
+  /**
+   * Lo que el cajero le cobró al cliente con el precio que tenía el espejo del
+   * catálogo en ese momento. **No se usa para cobrar**: el total lo recalcula
+   * el servidor igual que siempre. Sirve para una sola cosa, que es comparar:
+   * si el precio cambió entre el cobro y la sincronización, la diferencia queda
+   * registrada en auditoría en vez de desaparecer.
+   */
+  totalCobradoCentavos: centavos.nullable().default(null),
 });
 export type DatosCrearVenta = z.infer<typeof esquemaCrearVenta>;
 

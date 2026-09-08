@@ -3,9 +3,12 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/cliente-api';
+import { borrarEspejo } from '@/lib/offline/almacen';
+import { limpiarPaginasGuardadas } from '@/lib/offline/service-worker';
 import { cn } from '@/lib/utils';
 import { NOMBRE_ROL, type Rol } from '@/lib/validacion/enums';
 import { Boton } from '@/components/ui/boton';
+import { EstadoOffline } from '@/components/pos/estado-offline';
 
 /**
  * Barra de navegación. Es delgada a propósito: la pantalla de venta necesita
@@ -28,13 +31,29 @@ const APARTADOS: Apartado[] = [
   { href: '/panel', texto: 'Panel', soloSupervision: true },
 ];
 
-export function BarraNavegacion({ nombre, rol }: { nombre: string; rol: Rol }) {
+export function BarraNavegacion({
+  usuarioId,
+  nombre,
+  rol,
+}: {
+  usuarioId: string;
+  nombre: string;
+  rol: Rol;
+}) {
   const ruta = usePathname();
   const router = useRouter();
   const supervisa = rol === 'ADMIN' || rol === 'SUPERVISOR';
 
   const salir = async () => {
     await api.delete('/api/sesion');
+    /*
+     * Lo guardado para el modo offline es de este cajero, y la caja es una PC
+     * compartida: el espejo del catálogo y las páginas cacheadas se tiran al
+     * salir. Las ventas pendientes **no**: llevan plata adentro y sobreviven al
+     * cambio de turno hasta que se sincronicen o alguien las resuelva.
+     */
+    void borrarEspejo();
+    limpiarPaginasGuardadas();
     router.replace('/ingresar');
     router.refresh();
   };
@@ -66,6 +85,7 @@ export function BarraNavegacion({ nombre, rol }: { nombre: string; rol: Rol }) {
       </nav>
 
       <div className="flex items-center gap-3">
+        <EstadoOffline usuarioId={usuarioId} />
         <span className="text-sm text-texto-suave">
           {nombre} · <span className="text-texto-tenue">{NOMBRE_ROL[rol]}</span>
         </span>

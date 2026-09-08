@@ -41,7 +41,23 @@ const nextConfig: NextConfig = {
    */
   serverExternalPackages: ['better-sqlite3', '@prisma/adapter-better-sqlite3'],
   async headers() {
-    return [{ source: '/:path*', headers: cabecerasSeguridad }];
+    return [
+      { source: '/:path*', headers: cabecerasSeguridad },
+      {
+        /*
+         * El service worker no se cachea nunca. Si el navegador se quedara con
+         * una copia vieja, un despliegue nuevo no llegaría a la caja hasta que
+         * expirara esa copia, y mientras tanto seguiría sirviendo del disco los
+         * archivos de la versión anterior. Es el único archivo del proyecto que
+         * tiene que llegar siempre fresco.
+         */
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
+    ];
   },
 };
 

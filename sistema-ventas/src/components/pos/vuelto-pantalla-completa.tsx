@@ -21,7 +21,8 @@ export function VueltoPantallaCompleta({
   alCerrar,
 }: {
   vueltoCentavos: number;
-  numeroVenta: number;
+  /** `null` cuando la venta quedó en la cola offline y todavía no tiene número. */
+  numeroVenta: number | null;
   alCerrar: () => void;
 }) {
   useEffect(() => {
@@ -47,8 +48,12 @@ export function VueltoPantallaCompleta({
       {/* 64px es el tope de la escala tipográfica. No se inventa un tamaño
           nuevo para esta pantalla: la escala existe para eso (§7.1). */}
       <p className="text-4xl text-acento">{formatearMoneda(vueltoCentavos)}</p>
+      {/* Sin número la venta está en la cola: el número lo pone el servidor al
+          sincronizar. Inventar uno acá para que el cartel quede parejo sería
+          poner en pantalla un dato que no existe. */}
       <p className="text-sm text-texto-tenue">
-        Venta {numeroVenta} · toca una tecla para seguir
+        {numeroVenta === null ? 'Venta guardada sin conexión' : `Venta ${numeroVenta}`} · toca una
+        tecla para seguir
       </p>
     </div>
   );
