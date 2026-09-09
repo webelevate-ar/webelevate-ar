@@ -43,6 +43,28 @@ incluidas las páginas legales según la Ley 24.240 y la Ley 25.326.
 Las ilustraciones son SVG dibujado a mano en el propio código: el sitio no depende de ninguna
 imagen externa y pesa casi nada.
 
+### 🧾 Mostrador — [probar la demo](https://sistema-ventas-web-elevate1.vercel.app)
+
+Sistema de punto de venta para autoservicios y minimercados. Es una aplicación web que se
+instala como app en la PC o la tablet del mostrador.
+
+- **Cobra con el teclado, sin mouse.** Una venta de tres productos en efectivo se hace sin
+  soltar el teclado.
+- **Sigue vendiendo sin internet.** Si se corta la conexión, la venta se cobra igual, queda en
+  una cola local y se sincroniza sola cuando vuelve.
+- **Caja con arqueo ciego**: al cerrar, el cajero declara lo que contó sin ver lo que el sistema
+  esperaba. La diferencia aparece recién después.
+- Control de stock, historial con anulaciones, registro de auditoría y panel para el dueño.
+- El dinero se lleva en enteros de centavos, y el total de cada venta lo recalcula el servidor:
+  nunca se confía en el precio que manda la pantalla.
+
+Demo con datos generados. PIN: **Admin 1234 · Supervisor 2222 · Cajero 1111**.
+
+### 📊 Soltura — [ver el sitio](https://soltura-seven.vercel.app)
+
+Plataforma para aprender Excel resolviendo casos reales, gratis y sin registrarse. Hecha con
+Astro.
+
 ### 🛒 Tienda WebElevate — [webelevate.com.ar](https://webelevate.com.ar)
 
 Tema de Shopify propio, construido sobre Dawn, para vender servicios de diseño en vez de
@@ -63,6 +85,9 @@ Página única, sin una sola dependencia externa — funciona hasta sin internet
 - **Sin framework cuando no hace falta.** Un sitio de un taller no necesita React. HTML plano
   carga más rápido, no se rompe solo con el tiempo y el cliente puede abrirlo con el Bloc de
   notas si quiere cambiar una palabra.
+- **Con framework cuando el trabajo lo pide.** Un punto de venta que maneja plata, stock y
+  varias cajas a la vez es otra cosa: ahí van tipos estrictos, base de datos con transacciones
+  y pruebas automáticas.
 - **Cada sitio se entrega con un manual en castellano** para que el dueño pueda cambiar textos,
   precios y teléfonos sin depender de mí.
 - **No prometo lo que no se puede verificar.** Si el negocio no puede sostener una promesa, esa
@@ -70,8 +95,8 @@ Página única, sin una sola dependencia externa — funciona hasta sin internet
 
 ## Herramientas
 
-HTML · CSS · JavaScript · Tailwind CSS · Liquid (Shopify) · SEO técnico y datos estructurados ·
-Vercel · Netlify · Git
+HTML · CSS · JavaScript · Tailwind CSS · Astro · Next.js · TypeScript · PostgreSQL · Liquid
+(Shopify) · SEO técnico y datos estructurados · Vercel · Cloudflare · Git
 
 ---
 
