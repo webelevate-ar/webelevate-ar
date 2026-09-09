@@ -1,0 +1,5 @@
+# Este repositorio publica un solo archivo: README.md, la biografia.
+# Todo lo demas se ignora a proposito, para que nada se suba por accidente.
+*
+!README.md
+!.gitignore
