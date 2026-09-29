@@ -40,11 +40,11 @@ Lo que tiene adentro:
 - SEO completo: datos estructurados de negocio local, preguntas frecuentes con su schema,
   sitemap, y acceso explícito para los rastreadores de IA.
 
-### 🍔 Tomy's — [ver la carta](https://tommys-menu.vercel.app)
+### 🔥 Doble Brasa — [probar la carta](https://doble-brasa.vercel.app)
 
-Carta digital para una lomitería y rotisería de Córdoba: 40 productos en 6 categorías, pedido
-armado en la página que llega por WhatsApp con el total, y un panel con contraseña para que el
-local cambie productos, precios y fotos sin tocar código.
+Carta digital de muestra para una lomitería y pizzería (el local es ficticio): 28 productos en 7
+categorías, pedido armado en la página que sale por WhatsApp con el total, y un panel del local
+que cualquiera puede probar para cambiar precios, productos y fotos.
 
 ### 💜 Glicina — [ver la tienda](https://glicina.vercel.app)
 
