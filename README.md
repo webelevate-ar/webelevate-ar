@@ -6,6 +6,8 @@
 </p>
 
 <p align="center">
+  <a href="https://webelevate-portfolio.vercel.app"><strong>Portfolio</strong></a> ·
+  <a href="https://webelevate.com.ar">webelevate.com.ar</a> ·
   <a href="https://www.instagram.com/webelevate.ar/">Instagram</a>
 </p>
 
@@ -16,6 +18,9 @@ Trabajo sobre todo con comercios y talleres de Córdoba: sitios rápidos, pensad
 y para que la gente termine llamando, escribiendo por WhatsApp o entrando al local.
 
 ## Trabajos
+
+Todos, con capturas y cómo está hecho cada uno, en el
+**[portfolio](https://webelevate-portfolio.vercel.app)**. Acá, los principales.
 
 ### 🏍️ Carrizo Motos — [ver el sitio](https://carrizomotos-cba.vercel.app)
 
@@ -34,6 +39,18 @@ Lo que tiene adentro:
   asistente leen todos del mismo bloque de datos estructurados.
 - SEO completo: datos estructurados de negocio local, preguntas frecuentes con su schema,
   sitemap, y acceso explícito para los rastreadores de IA.
+
+### 🍔 Tomy's — [ver la carta](https://tommys-menu.vercel.app)
+
+Carta digital para una lomitería y rotisería de Córdoba: 40 productos en 6 categorías, pedido
+armado en la página que llega por WhatsApp con el total, y un panel con contraseña para que el
+local cambie productos, precios y fotos sin tocar código.
+
+### 💜 Glicina — [ver la tienda](https://glicina.vercel.app)
+
+Tienda de charms hechos a mano, con Astro. Un armador dibuja el charm en SVG mientras se elige
+el nombre o el integrante y los colores, y el pedido se cierra por WhatsApp. Sin base de datos
+ni hosting pago: el catálogo se edita desde tres archivos.
 
 ### 🧽 Luffaloop — [ver el sitio](https://luffaloop-web.vercel.app)
 
@@ -60,15 +77,15 @@ instala como app en la PC o la tablet del mostrador.
 
 Demo con datos generados. PIN: **Admin 1234 · Supervisor 2222 · Cajero 1111**.
 
-### 📊 Soltura — [ver el sitio](https://soltura-seven.vercel.app)
+### 📊 Soltura — [ver el sitio](https://soltura.webelevate.com.ar)
 
 Plataforma para aprender Excel resolviendo casos reales, gratis y sin registrarse. Hecha con
-Astro.
+Astro: 18 ejercicios en 3 unidades, con planillas para descargar.
 
-### 🛒 Tienda WebElevate — [webelevate.com.ar](https://webelevate.com.ar)
+### 🌐 WebElevate — [webelevate.com.ar](https://webelevate.com.ar)
 
-Tema de Shopify propio, construido sobre Dawn, para vender servicios de diseño en vez de
-productos físicos.
+El sitio de la marca, mudado de Shopify a Cloudflare Workers sin cambiar el dominio. La portada
+pasó de cargar en 1,12 s a 0,33 s y el hosting dejó de costar US$29–39 por mes.
 
 ### 🏁 KneeScraper Garage — [ver la demo](https://kneescraper-garage.vercel.app)
 
